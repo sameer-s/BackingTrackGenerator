@@ -6,8 +6,8 @@ public class AutomatonGrid {
     private int[] grid;
     private int ruleset;
 
-    public AutomatonGrid(int size, int ruleset) {
-        this(generateGrid(size), ruleset);
+    public AutomatonGrid(int size, boolean randomize, int ruleset) {
+        this(randomize ? generateGrid(size) : defaultGrid(size), ruleset);
     }
 
     private static int[] generateGrid(int size) {
@@ -17,6 +17,12 @@ public class AutomatonGrid {
                 grid[i] = 1;
             }
         }
+        return grid;
+    }
+
+    private static int[] defaultGrid(int size) {
+        int[] grid = new int[size];
+        grid[size / 2] = 1;
         return grid;
     }
 
@@ -39,7 +45,7 @@ public class AutomatonGrid {
         return ruleset;
     }
 
-    public void iterate() {
+    public AutomatonGrid iterate() {
         int[] newGrid = new int[grid.length];
 
         for(int i = 0; i < grid.length; i++) {
@@ -59,5 +65,7 @@ public class AutomatonGrid {
         }
 
         grid = newGrid;
+
+        return this;
     }
 }
