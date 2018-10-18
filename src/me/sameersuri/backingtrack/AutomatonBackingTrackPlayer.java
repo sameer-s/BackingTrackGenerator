@@ -15,10 +15,7 @@ import javax.sound.midi.MidiChannel;
 import javax.sound.midi.MidiSystem;
 import javax.sound.midi.MidiUnavailableException;
 import javax.sound.midi.Synthesizer;
-import java.awt.image.AreaAveragingScaleFilter;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -30,15 +27,15 @@ import java.util.TreeMap;
 import static me.sameersuri.backingtrack.music.NoteName.*;
 
 public class AutomatonBackingTrackPlayer {
-    private static final double BPM = 150; // Tempo; beats per minute
+    protected static final double BPM = 150; // Tempo; beats per minute
 
-    private static final long oneBeat = Math.round(1 / ((BPM / 60.0) / 1000.0)); // Tempo; milliseconds per beat
-    private static final long oneBar = oneBeat * 4;
+    protected static final long oneBeat = Math.round(1 / ((BPM / 60.0) / 1000.0)); // Tempo; milliseconds per beat
+    protected static final long oneBar = oneBeat * 4;
 
-    private Map<MidiChannel, Map<Integer, Integer>> currentNotes = new HashMap<>();
-    private SortedMap<Long, List<MidiEvent>> events = new TreeMap<>();
+    protected Map<MidiChannel, Map<Integer, Integer>> currentNotes = new HashMap<>();
+    protected SortedMap<Long, List<MidiEvent>> events = new TreeMap<>();
 
-    private static final Comparator<MidiEvent> offEventsFirst = (o1, o2) -> {
+    protected static final Comparator<MidiEvent> offEventsFirst = (o1, o2) -> {
         if (o1.isOnEvent()) {
             if (o2.isOnEvent()) {
                 return 0;
@@ -56,7 +53,8 @@ public class AutomatonBackingTrackPlayer {
 
     public static void main(String[] args) {
         try {
-            AutomatonGrid grid = new AutomatonGrid(32, false, 89);
+            AutomatonGrid pianoGrid = new AutomatonGrid(32, false, 89);
+            AutomatonGrid bassGrid = new AutomatonGrid(32, false, 78);
             /*
                 77 -> good but eventually devolves into beat
                     beginning good for piano
@@ -70,7 +68,8 @@ public class AutomatonBackingTrackPlayer {
              */
 
             for (int i = 0; i < 50; i++) {
-                grid.iterate();
+//                pianoGrid.iterate();
+//                bassGrid.iterate();
             }
 
             NoteName[] baseNotes = new NoteName[]{A, A, A, A, D, D, A, A, E, D, A, A};
@@ -79,9 +78,17 @@ public class AutomatonBackingTrackPlayer {
             for (int i = 0; i < iterations; i++) {
                 System.arraycopy(baseNotes, 0, notes, i * baseNotes.length, baseNotes.length);
             }
-            Bar[] bars = Arrays.stream(notes).map(note -> new Bar(note, getBarPattern(grid.iterate()))).toArray(Bar[]::new);
             AutomatonBackingTrackPlayer player = new AutomatonBackingTrackPlayer();
-            player.playBackingTrack(new Song(bars));
+            Synthesizer synthesizer = MidiSystem.getSynthesizer();
+            Song pianoSong = new Song(Arrays.stream(notes).map(note -> new Bar(note, getBarPattern(pianoGrid.iterate()))).toArray(Bar[]::new));
+            Song bassSong = new Song(Arrays.stream(notes).map(note -> new Bar(note, getBarPattern(bassGrid.iterate()))).toArray(Bar[]::new));
+            synthesizer.open();
+            player.generatePianoTrack(synthesizer, pianoSong);
+            player.generateBassTrack(synthesizer, bassSong);
+            player.generateOrganTrack(synthesizer, pianoSong);
+            player.generateDrumTrack(synthesizer, pianoSong);
+            player.playBackingTrack();
+            synthesizer.close();
 
         } catch (MidiUnavailableException e) {
             throw new RuntimeException(e);
@@ -89,7 +96,7 @@ public class AutomatonBackingTrackPlayer {
     }
 
 
-    private static BarPattern getBarPattern(AutomatonGrid grid) {
+    protected static BarPattern getBarPattern(AutomatonGrid grid) {
         int[] rhythmArr = grid.getGrid();
         List<Rhythm> rhythms = new LinkedList<>();
         for (int i = 0; i < rhythmArr.length; i += 4) {
@@ -106,7 +113,7 @@ public class AutomatonBackingTrackPlayer {
             }
 
             if (valid) {
-                rhythms.add(new Rhythm((i / 8.0), 1 / 2., 35));
+                rhythms.add(new Rhythm((i / 8.0), 1 / 2., 50));
             }
 
             System.out.print(valid ? "x" : "-");
@@ -114,7 +121,7 @@ public class AutomatonBackingTrackPlayer {
 
         System.out.println();
 
-        int chordNum = (int) (Math.random() * 3);
+        int chordNum = (int) (Math.random() * 2);
         ChordType chord = null;
         if (chordNum == 0) {
             chord = ChordType.DOMINANT7;
@@ -130,22 +137,11 @@ public class AutomatonBackingTrackPlayer {
         return new BarPattern(chord, rhythms.toArray(new Rhythm[0]));
     }
 
-    public void playBackingTrack(Song song) throws MidiUnavailableException {
-        Synthesizer synthesizer = MidiSystem.getSynthesizer();
-        synthesizer.open();
-
+    public void generateDrumTrack(Synthesizer synthesizer, Song song) {
         MidiChannel[] channels = synthesizer.getChannels();
-        MidiChannel pianoChannel = channels[0];
-        MidiChannel bassChannel = channels[1];
-        bassChannel.programChange(34);
-        MidiChannel organChannel = channels[2];
-        organChannel.programChange(20);
         MidiChannel drumChannel = channels[9];
 
         long currentTime = 0;
-
-        pianoChannel.setMute(true);
-        bassChannel.setMute(true);
 
         for (int i = 0; i < 4; i++) {
             addMidiEvent(currentTime + (i * oneBeat), true, drumChannel, 77, 64);
@@ -154,30 +150,22 @@ public class AutomatonBackingTrackPlayer {
 
         currentTime += oneBar;
 
-        for (Bar bar : song) {
-            // Metronome/drum
+        for(Bar ignored : song) {
             for (int i = 0; i < 4; i++) {
                 addMidiEvent(currentTime + (i * oneBeat), true, drumChannel, 77, 64);
                 addMidiEvent(currentTime + (i * oneBeat) + 60, false, drumChannel, 77, 16);
-
-                if (currentTime <= 25 * oneBar) {
-                    int bassNote = bar.getRoot().getMidiValue() - 24;
-                    addMidiEvent(currentTime + (i * oneBeat), true, bassChannel, bassNote, 60);
-                    addMidiEvent(currentTime + (i * oneBeat) + oneBeat, false, bassChannel, bassNote, 16);
-
-                    addMidiEvent((long) (currentTime + ((i + 0.5) * oneBeat)), true, bassChannel, bassNote, 60);
-                    addMidiEvent((long) (currentTime + ((i + 0.5) * oneBeat)) + oneBeat, false, bassChannel, bassNote, 16);
-                } else if (i % 2 == 0) {
-                    int bassNote = bar.getRoot().getMidiValue() - 24;
-                    addMidiEvent(currentTime + (i * oneBeat), true, bassChannel, bassNote, 60);
-                    addMidiEvent(currentTime + (i * oneBeat) + oneBeat, false, bassChannel, bassNote, 16);
-                }
             }
+            currentTime += oneBar;
+        }
+    }
 
-//            int bassNote = bar.getRoot().getMidiValue() - 24;
-//            addMidiEvent(currentTime, true, bassChannel, bassNote, 60);
-//            addMidiEvent(currentTime+ oneBeat, false, bassChannel, bassNote, 16);
+    public void generateOrganTrack(Synthesizer synthesizer, Song song) {
+        MidiChannel[] channels = synthesizer.getChannels();
+        MidiChannel organChannel = channels[2];
+        organChannel.programChange(20);
 
+        long currentTime = oneBar;
+        for (Bar bar : song) {
             // Organ
             int rootNote = bar.getRoot().getMidiValue();
             int[] organNotes = new int[]{rootNote, rootNote - 5, rootNote - 12};
@@ -186,6 +174,36 @@ public class AutomatonBackingTrackPlayer {
                 addMidiEvent(currentTime + oneBar, false, organChannel, organNote, 16);
             }
 
+            currentTime += oneBar;
+        }
+    }
+
+    public void generateBassTrack(Synthesizer synthesizer, Song song) {
+        MidiChannel[] channels = synthesizer.getChannels();
+        MidiChannel bassChannel = channels[1];
+        bassChannel.programChange(34);
+
+        long currentTime = oneBar;
+        for (Bar bar : song) {
+            for (Chord chord : bar) {
+                long startDelay = (long) ((chord.getRhythm().getBeat() - 1) * oneBeat);
+
+                int bassNote = chord.getRoot().getMidiValue() - 24;
+                addMidiEvent(currentTime + startDelay, true, bassChannel, bassNote, 60);
+                addMidiEvent(currentTime + startDelay + oneBeat, false, bassChannel, bassNote, 16);
+            }
+
+            currentTime += oneBar;
+        }
+    }
+    public void generatePianoTrack(Synthesizer synthesizer, Song song) {
+        MidiChannel[] channels = synthesizer.getChannels();
+        MidiChannel pianoChannel = channels[0];
+
+
+        long currentTime = oneBar;
+
+        for (Bar bar : song) {
             for (Chord chord : bar) {
                 long startDelay = (long) ((chord.getRhythm().getBeat() - 1) * oneBeat);
                 long length = ((long) ((chord.getRhythm().getDuration()) * oneBeat));
@@ -194,17 +212,15 @@ public class AutomatonBackingTrackPlayer {
                 for (Note note : chord) {
                     addMidiEvent(currentTime + startDelay, true, pianoChannel, note.getMidiValue() - 12, chord.getRhythm().getVelocity());
                     addMidiEvent(currentTime + startDelay + length, false, pianoChannel, note.getMidiValue() - 12, chord.getRhythm().getVelocity());
-                }
 
-                // Bass
-//                int bassNote = chord.getRoot().getMidiValue() - 24;
-//                addMidiEvent(currentTime + startDelay, true, bassChannel, bassNote, 100);
-//                addMidiEvent(currentTime + startDelay + oneBeat, false, bassChannel, bassNote, 16);
+                }
             }
 
             currentTime += oneBar;
         }
+    }
 
+    public void playBackingTrack() {
         for(List<MidiEvent> eventList : events.values()) {
             eventList.sort(offEventsFirst.reversed());
         }
@@ -215,13 +231,6 @@ public class AutomatonBackingTrackPlayer {
 
             // noinspection StatementWithEmptyBody
             while (System.currentTimeMillis() < startTime + key) {
-            }
-
-            if (key > 13 * oneBar) {
-                bassChannel.setMute(false);
-            }
-            if (key > 25 * oneBar) {
-                pianoChannel.setMute(false);
             }
 
             for (MidiEvent event : events.get(key)) {
@@ -246,11 +255,9 @@ public class AutomatonBackingTrackPlayer {
 
             events.remove(key);
         }
-
-        synthesizer.close();
     }
 
-    private void addMidiEvent(long delay, boolean isOnEvent, MidiChannel channel, int midiNote, int velocity) {
+    protected void addMidiEvent(long delay, boolean isOnEvent, MidiChannel channel, int midiNote, int velocity) {
         List<MidiEvent> list = events.getOrDefault(delay, new LinkedList<>());
         list.add(new MidiEvent(isOnEvent, channel, midiNote, velocity));
         events.put(delay, list);
