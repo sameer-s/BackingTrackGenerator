@@ -31,38 +31,25 @@ import static me.sameersuri.backingtrack.music.NoteName.A;
 import static me.sameersuri.backingtrack.music.NoteName.D;
 import static me.sameersuri.backingtrack.music.NoteName.E;
 
-public class SoloBackingTrackPlayer extends AutomatonBackingTrackPlayer{
+public class SoloBackingTrackPlayer extends AutomatonBackingTrackPlayer {
     public static void main(String[] args) {
         try {
-            AutomatonGrid pianoGrid = new AutomatonGrid(32, false, 89);
-            AutomatonGrid bassGrid = new AutomatonGrid(32, false, 78);
-
-            for (int i = 0; i < 50; i++) {
-                pianoGrid.iterate();
-            }
-
-            NoteName[] baseNotes = new NoteName[] { A, A, A, A, D, D, A, A, E, D, A, A };
-            int iterations = 3;
-            NoteName[] notes = new NoteName[baseNotes.length * iterations];
-            for (int i = 0; i < iterations; i++) {
-                System.arraycopy(baseNotes, 0, notes, i * baseNotes.length, baseNotes.length);
-            }
-            SoloBackingTrackPlayer player = new SoloBackingTrackPlayer();
             Synthesizer synthesizer = MidiSystem.getSynthesizer();
-            Song pianoSong = new Song(Arrays.stream(notes).map(note -> new Bar(note, getBarPattern(pianoGrid.iterate()))).toArray(Bar[]::new));
-            Song bassSong = new Song(Arrays.stream(notes).map(note -> new Bar(note, getBarPattern(bassGrid.iterate()))).toArray(Bar[]::new));
             synthesizer.open();
-            player.generatePianoTrack(synthesizer, pianoSong);
-            player.generateBassTrack(synthesizer, bassSong);
-            player.generateOrganTrack(synthesizer, pianoSong);
-            player.generateDrumTrack(synthesizer, pianoSong);
-            player.generateSoloTrack(synthesizer, pianoSong, baseNotes[0]);
-            player.playBackingTrack();
+            new SoloBackingTrackPlayer().generateTrack(synthesizer).playBackingTrack();
             synthesizer.close();
-
-        } catch (MidiUnavailableException e) {
+        }
+        catch (MidiUnavailableException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    public SoloBackingTrackPlayer generateTrack(Synthesizer synthesizer) {
+        super.generateTrack(synthesizer);
+        generateSoloTrack(synthesizer, pianoSong, notes[0]);
+
+        return this;
     }
 
     public void generateSoloTrack(Synthesizer synthesizer, Song song, NoteName key) {
@@ -79,16 +66,16 @@ public class SoloBackingTrackPlayer extends AutomatonBackingTrackPlayer{
         double totalSubdivisionProbability = eighthProbability + tripletProbability + noSubdivisionProbability;
 
         // Probability of individual notes
-        double[] baseNoteProbabilities = new double[] { 4, 0, 0, 0, 3, 3, 0.2, 3, 0, 0, 2, 0, 4};
+        double[] baseNoteProbabilities = new double[]{4, 0, 0, 0, 3, 3, 0.2, 3, 0, 0, 2, 0, 4};
         double[] squaredNoteProbabilities = Arrays.stream(baseNoteProbabilities).map(p -> p * p).toArray();
 
         Function<double[], RelativeNote> generateNote = noteProbabilities -> {
             double totalNoteProbability = Arrays.stream(noteProbabilities).sum();
             double noteVal = Math.random() * totalNoteProbability;
             double sum = 0;
-            for(int i = 0; i < noteProbabilities.length; i++) {
+            for (int i = 0; i < noteProbabilities.length; i++) {
                 sum += noteProbabilities[i];
-                if(noteVal < sum) {
+                if (noteVal < sum) {
                     return RelativeNote.values()[i];
                 }
             }
@@ -108,8 +95,7 @@ public class SoloBackingTrackPlayer extends AutomatonBackingTrackPlayer{
 
                     addMidiEvent(currentTime + (oneBeat / 2), true, soloChannel, secondNote.getMidiValue(), 64);
                     addMidiEvent(currentTime + oneBeat, false, soloChannel, secondNote.getMidiValue(), 16);
-                }
-                else if (val < eighthProbability + tripletProbability) {
+                } else if (val < eighthProbability + tripletProbability) {
                     // Subdivide into triplets
                     Note firstNote = new Note(key.getMidiValue() + generateNote.apply(baseNoteProbabilities).getMidiValue());
                     Note secondNote = new Note(key.getMidiValue() + generateNote.apply(squaredNoteProbabilities).getMidiValue());
@@ -123,8 +109,7 @@ public class SoloBackingTrackPlayer extends AutomatonBackingTrackPlayer{
 
                     addMidiEvent(currentTime + 2 * oneBeat / 3, true, soloChannel, thirdNote.getMidiValue(), 64);
                     addMidiEvent(currentTime + oneBeat, false, soloChannel, thirdNote.getMidiValue(), 16);
-                }
-                else {
+                } else {
                     // Do not divide beat
                     Note note = new Note(key.getMidiValue() + generateNote.apply(baseNoteProbabilities).getMidiValue());
 

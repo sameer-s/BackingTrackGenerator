@@ -35,6 +35,10 @@ public class AutomatonBackingTrackPlayer {
     protected Map<MidiChannel, Map<Integer, Integer>> currentNotes = new HashMap<>();
     protected SortedMap<Long, List<MidiEvent>> events = new TreeMap<>();
 
+    protected final AutomatonGrid pianoGrid, bassGrid;
+    protected final NoteName[] notes;
+    protected Song pianoSong, bassSong;
+
     protected static final Comparator<MidiEvent> offEventsFirst = (o1, o2) -> {
         if (o1.isOnEvent()) {
             if (o2.isOnEvent()) {
@@ -53,46 +57,44 @@ public class AutomatonBackingTrackPlayer {
 
     public static void main(String[] args) {
         try {
-            AutomatonGrid pianoGrid = new AutomatonGrid(32, false, 89);
-            AutomatonGrid bassGrid = new AutomatonGrid(32, false, 78);
-            /*
-                77 -> good but eventually devolves into beat
-                    beginning good for piano
-                    79 similar
-                78 -> starts off slow, slowly grows into beats
-                    more investigation needed
-                    could be good for bass
-                86 -> starts simple, grows to more complex
-                    GOOD (esp. piano)
-                    89 similar
-             */
-
-            for (int i = 0; i < 50; i++) {
-//                pianoGrid.iterate();
-//                bassGrid.iterate();
-            }
-
-            NoteName[] baseNotes = new NoteName[]{A, A, A, A, D, D, A, A, E, D, A, A};
-            int iterations = 3;
-            NoteName[] notes = new NoteName[baseNotes.length * iterations];
-            for (int i = 0; i < iterations; i++) {
-                System.arraycopy(baseNotes, 0, notes, i * baseNotes.length, baseNotes.length);
-            }
-            AutomatonBackingTrackPlayer player = new AutomatonBackingTrackPlayer();
             Synthesizer synthesizer = MidiSystem.getSynthesizer();
-            Song pianoSong = new Song(Arrays.stream(notes).map(note -> new Bar(note, getBarPattern(pianoGrid.iterate()))).toArray(Bar[]::new));
-            Song bassSong = new Song(Arrays.stream(notes).map(note -> new Bar(note, getBarPattern(bassGrid.iterate()))).toArray(Bar[]::new));
             synthesizer.open();
-            player.generatePianoTrack(synthesizer, pianoSong);
-            player.generateBassTrack(synthesizer, bassSong);
-            player.generateOrganTrack(synthesizer, pianoSong);
-            player.generateDrumTrack(synthesizer, pianoSong);
-            player.playBackingTrack();
+            new AutomatonBackingTrackPlayer().generateTrack(synthesizer).playBackingTrack();
             synthesizer.close();
-
-        } catch (MidiUnavailableException e) {
+        }
+        catch (MidiUnavailableException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public AutomatonBackingTrackPlayer() {
+        /*
+            77 -> good but eventually devolves into beat
+                beginning good for piano
+                79 similar
+            78 -> starts off slow, slowly grows into beats
+                more investigation needed
+                could be good for bass
+            86 -> starts simple, grows to more complex
+                GOOD (esp. piano)
+                89 similar
+            101 also pretty groovy
+         */
+
+        pianoGrid = new AutomatonGrid(32, false, 127); //89
+        bassGrid = new AutomatonGrid(32, false, 122); //78
+        notes = new NoteName[]{A, A, A, A, D, D, A, A, E, D, A, A};
+    }
+
+    public AutomatonBackingTrackPlayer generateTrack(Synthesizer synthesizer) {
+        pianoSong = new Song(Arrays.stream(notes).map(note -> new Bar(note, getBarPattern(pianoGrid.iterate()))).toArray(Bar[]::new));
+        bassSong = new Song(Arrays.stream(notes).map(note -> new Bar(note, getBarPattern(bassGrid.iterate()))).toArray(Bar[]::new));
+        generatePianoTrack(synthesizer, pianoSong);
+        generateBassTrack(synthesizer, bassSong);
+        generateOrganTrack(synthesizer, pianoSong);
+        generateDrumTrack(synthesizer, pianoSong);
+
+        return this;
     }
 
 
@@ -116,7 +118,7 @@ public class AutomatonBackingTrackPlayer {
                 rhythms.add(new Rhythm((i / 8.0), 1 / 2., 50));
             }
 
-            System.out.print(valid ? "x" : "-");
+//            System.out.print(valid ? "x" : "-");
         }
 
         System.out.println();
@@ -150,7 +152,7 @@ public class AutomatonBackingTrackPlayer {
 
         currentTime += oneBar;
 
-        for(Bar ignored : song) {
+        for (Bar ignored : song) {
             for (int i = 0; i < 4; i++) {
                 addMidiEvent(currentTime + (i * oneBeat), true, drumChannel, 77, 64);
                 addMidiEvent(currentTime + (i * oneBeat) + 60, false, drumChannel, 77, 16);
@@ -196,6 +198,7 @@ public class AutomatonBackingTrackPlayer {
             currentTime += oneBar;
         }
     }
+
     public void generatePianoTrack(Synthesizer synthesizer, Song song) {
         MidiChannel[] channels = synthesizer.getChannels();
         MidiChannel pianoChannel = channels[0];
@@ -221,11 +224,12 @@ public class AutomatonBackingTrackPlayer {
     }
 
     public void playBackingTrack() {
-        for(List<MidiEvent> eventList : events.values()) {
+        for (List<MidiEvent> eventList : events.values()) {
             eventList.sort(offEventsFirst.reversed());
         }
 
         long startTime = System.currentTimeMillis();
+        System.out.println("Beginning playback.");
         while (!events.isEmpty()) {
             long key = events.firstKey();
 
